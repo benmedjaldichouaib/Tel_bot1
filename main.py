@@ -1,57 +1,31 @@
-
-from flask import Flask
-import google.generativeai as genai
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+import google.generativeai as genai
+import os
+import psycopg2
 import nest_asyncio
 import asyncio
 import threading
-import os
-import psycopg2
 
-# مفاتيح من Environment Variables
+# =======================
+# Environment Variables
+# =======================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+DATABASE_URL = os.environ.get("postgresql://bot_db_dbjz_user:iWzIodRLt4GaQJWVGt030LQM45817Pgi@dpg-d491rr95pdvs73cm68rg-a/bot_db_dbjz")  # PostgreSQL URL from Render
 
-# إعداد Gemini
+# =======================
+# Gemini setup
+# =======================
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
-# إصلاح event loop
-nest_asyncio.apply()
-
-# Flask server
-web_app = Flask(__name__)
-
-@web_app.route('/')
-def home():
-    return "🤖 AI Bot is running!"
-
-# ✅ route باش تشوف آخر الرسائل فالمتصفح
-@web_app.route('/messages')
-def show_messages():
-    try:
-        cursor.execute("SELECT username, message, bot_reply, timestamp FROM messages ORDER BY id DESC LIMIT 20")
-        rows = cursor.fetchall()
-        content = ""
-        for row in rows:
-            content += f"<b>{row[0]}</b> ({row[3]}):<br>🧠 User: {row[1]}<br>🤖 Bot: {row[2]}<br><br>"
-        return content if content else "⚠️ No messages yet."
-    except Exception as e:
-        return f"⚠️ Error reading database: {e}"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    web_app.run(host="0.0.0.0", port=port)
-
-# ===========================
+# =======================
 # PostgreSQL setup
-# ===========================
-DATABASE_URL = os.environ.get("DATABASE_URL")  # Render يعطيها تلقائي
-
+# =======================
 conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
-
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS messages (
     id SERIAL PRIMARY KEY,
@@ -64,26 +38,32 @@ CREATE TABLE IF NOT EXISTS messages (
 """)
 conn.commit()
 
-# ===========================
+# =======================
+# Flask setup
+# =======================
+nest_asyncio.apply()
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def home():
+    return "🤖 AI Bot is running!"
+
+# =======================
 # Telegram Bot
-# ===========================
+# =======================
 user_names = {}
 
 async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_message = update.message.text.strip()
 
-    # لو المستخدم ما عندوش اسم، نسقسيه
-    if user_id not in user_names:
-        user_names[user_id] = None
-
-    if user_names[user_id] is None:
+    # سؤال الاسم إذا جديد
+    if user_id not in user_names or user_names[user_id] is None:
         user_names[user_id] = user_message
         await update.message.reply_text(f"تشرفت بمعرفتك يا {user_message}! 🌟\nاكتبلي أي سؤال تحب.")
         return
 
     username = user_names[user_id]
-    print(f"{username}: {user_message}")
 
     # ✅ الرد من Gemini
     try:
@@ -105,14 +85,38 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"⚠️ خطأ في حفظ البيانات: {e}")
 
-# إعداد تطبيق البوت
+# =======================
+# Telegram Webhook route
+# =======================
+@web_app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), app.bot)
+    asyncio.get_event_loop().create_task(app.process_update(update))
+    return "ok", 200
+
+# =======================
+# Run Flask server
+# =======================
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
+
+# =======================
+# Telegram application
+# =======================
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_ai))
 
-# تشغيل Flask server + البوت
+# =======================
+# Start Flask + Bot
+# =======================
 threading.Thread(target=run_flask).start()
 
-async def run_bot():
-    await app.run_polling()
+async def set_webhook():
+    webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
+    await app.bot.set_webhook(webhook_url)
+    print(f"✅ Webhook set to: {webhook_url}")
 
-asyncio.run(run_bot())
+asyncio.run(set_webhook())
+asyncio.run(app.run_polling())
+
