@@ -72,6 +72,8 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f.write(f"  🤖 Bot: {bot_reply}\n\n")
     except Exception as e:
         print(f"⚠️ خطأ في حفظ رد البوت: {e}")
+    print(f"📁 Saved to messages.txt: {username}: {user_message}")
+
 
 # إعداد تطبيق البوت
 app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -84,4 +86,5 @@ async def run_bot():
     await app.run_polling()
 
 asyncio.run(run_bot())
+
 
