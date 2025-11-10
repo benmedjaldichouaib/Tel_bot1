@@ -1,11 +1,10 @@
-from flask import Flask
+from flask import Flask, request
 import google.generativeai as genai
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, ContextTypes, filters
+import os
 import nest_asyncio
 import asyncio
-import threading
-import os
 
 # مفاتيح من Environment Variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -15,21 +14,13 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
-# إصلاح event loop
-nest_asyncio.apply()
-
-# Flask server
+# Flask app
 web_app = Flask(__name__)
 
-@web_app.route('/')
-def home():
-    return "🤖 AI Bot is running!"
+# Telegram application
+app = Application.builder().token(BOT_TOKEN).build()
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))  # Render يعطي PORT تلقائي
-    web_app.run(host="0.0.0.0", port=port)
-
-# بوت تلغرام
+# دالة الرد من Gemini
 async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     print(f"User: {user_message}")
@@ -42,14 +33,32 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(bot_reply)
 
-# إعداد تطبيق البوت
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+# إضافة الهاندلر
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_ai))
 
-# تشغيل Flask server + البوت
-threading.Thread(target=run_flask).start()
+# المسارات في Flask
+@web_app.route('/')
+def home():
+    return "🤖 AI Bot is running with Webhook!", 200
 
-async def run_bot():
-    await app.run_polling()
+@web_app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), app.bot)
+    asyncio.get_event_loop().create_task(app.process_update(update))
+    return "ok", 200
 
-asyncio.run(run_bot())
+async def set_webhook():
+    webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
+    await app.bot.set_webhook(webhook_url)
+    print(f"✅ Webhook set to: {webhook_url}")
+
+async def main():
+    # تعيين الـWebhook
+    await set_webhook()
+    port = int(os.environ.get("PORT", 10000))
+    web_app.run(host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    nest_asyncio.apply()
+    asyncio.run(main())
+
