@@ -119,4 +119,22 @@ async def set_webhook():
 
 asyncio.run(set_webhook())
 asyncio.run(app.run_polling())
+# Route باش تشوف آخر الرسائل فالويب
+@web_app.route('/messages')
+def show_messages():
+    try:
+        cursor.execute("SELECT username, message, bot_reply, timestamp FROM messages ORDER BY id DESC LIMIT 50")
+        rows = cursor.fetchall()
+        if not rows:
+            return "⚠️ مازال ما كاين حتى رسالة."
+
+        # نخلق HTML بسيط باش نعرض الرسائل
+        content = "<h2>آخر الرسائل</h2><hr>"
+        for row in rows:
+            content += f"<b>{row[0]}</b> ({row[3]}):<br>🧠 User: {row[1]}<br>🤖 Bot: {row[2]}<br><br>"
+        return content
+    except Exception as e:
+        return f"⚠️ خطأ فـ قراءة الـ database: {e}"
+
+
 
