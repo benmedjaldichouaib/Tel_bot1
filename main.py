@@ -6,6 +6,7 @@ import nest_asyncio
 import asyncio
 import threading
 import os
+import sqlite3
 
 # مفاتيح من Environment Variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -25,14 +26,45 @@ web_app = Flask(__name__)
 def home():
     return "🤖 AI Bot is running!"
 
+# ✅ route باش تشوف آخر الرسائل فالمتصفح
+@web_app.route('/messages')
+def show_messages():
+    try:
+        cursor.execute("SELECT username, message, bot_reply, timestamp FROM messages ORDER BY id DESC LIMIT 20")
+        rows = cursor.fetchall()
+        content = ""
+        for row in rows:
+            content += f"<b>{row[0]}</b> ({row[3]}):<br>🧠 User: {row[1]}<br>🤖 Bot: {row[2]}<br><br>"
+        return content if content else "⚠️ No messages yet."
+    except Exception as e:
+        return f"⚠️ Error reading database: {e}"
+
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host="0.0.0.0", port=port)
 
-# تخزين أسماء المستخدمين
+# ===========================
+# SQLite setup
+# ===========================
+conn = sqlite3.connect("bot_data.db", check_same_thread=False)
+cursor = conn.cursor()
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    username TEXT,
+    message TEXT,
+    bot_reply TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+""")
+conn.commit()
+
+# ===========================
+# Telegram Bot
+# ===========================
 user_names = {}
 
-# بوت تلغرام
 async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_message = update.message.text.strip()
@@ -49,13 +81,6 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = user_names[user_id]
     print(f"{username}: {user_message}")
 
-    # ✅ نحفظ الرسالة فـ ملف
-    try:
-        with open("messages.txt", "a", encoding="utf-8") as f:
-            f.write(f"{username}:\n  🧠 User: {user_message}\n")
-    except Exception as e:
-        print(f"⚠️ خطأ في حفظ الرسالة: {e}")
-
     # ✅ الرد من Gemini
     try:
         response = model.generate_content(user_message)
@@ -63,17 +88,18 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         bot_reply = f"⚠️ خطأ في الاتصال بالذكاء الاصطناعي: {e}"
 
-    # نرد عليه
     await update.message.reply_text(bot_reply)
 
-    # ✅ نحفظ الرد ديال البوت في نفس الملف
+    # ✅ حفظ الرسالة و الرد فـ SQLite
     try:
-        with open("messages.txt", "a", encoding="utf-8") as f:
-            f.write(f"  🤖 Bot: {bot_reply}\n\n")
+        cursor.execute("""
+            INSERT INTO messages (user_id, username, message, bot_reply)
+            VALUES (?, ?, ?, ?)
+        """, (user_id, username, user_message, bot_reply))
+        conn.commit()
+        print(f"💾 Message saved for {username}")
     except Exception as e:
-        print(f"⚠️ خطأ في حفظ رد البوت: {e}")
-    print(f"📁 Saved to messages.txt: {username}: {user_message}")
-
+        print(f"⚠️ خطأ في حفظ البيانات: {e}")
 
 # إعداد تطبيق البوت
 app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -86,5 +112,7 @@ async def run_bot():
     await app.run_polling()
 
 asyncio.run(run_bot())
+
+
 
 
