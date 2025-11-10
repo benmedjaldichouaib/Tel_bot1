@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask, request, send_file, render_template_string
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 import google.generativeai as genai
@@ -7,13 +7,15 @@ import psycopg2
 import nest_asyncio
 import asyncio
 import threading
+import io
+import csv
 
 # =======================
 # Environment Variables
 # =======================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-DATABASE_URL = os.environ.get("postgresql://bot_db_dbjz_user:iWzIodRLt4GaQJWVGt030LQM45817Pgi@dpg-d491rr95pdvs73cm68rg-a/bot_db_dbjz")  # PostgreSQL URL from Render
+DATABASE_URL = os.environ.get("DATABASE_URL")  # PostgreSQL Internal URL
 
 # =======================
 # Gemini setup
@@ -57,15 +59,23 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_message = update.message.text.strip()
 
-    # سؤال الاسم إذا جديد
-    if user_id not in user_names or user_names[user_id] is None:
+    # إذا المستخدم جديد أو الاسم مازال ما تعرفش
+    if user_id not in user_names:
+        user_names[user_id] = None
+
+    if user_names[user_id] is None:
+        await update.message.reply_text("مرحبا! 🌟 شنو سميتك؟")
+        user_names[user_id] = "waiting_for_name"
+        return
+
+    if user_names[user_id] == "waiting_for_name":
         user_names[user_id] = user_message
-        await update.message.reply_text(f"تشرفت بمعرفتك يا {user_message}! 🌟\nاكتبلي أي سؤال تحب.")
+        await update.message.reply_text(f"تشرفت بمعرفتك يا {user_message}! اكتبلي أي سؤال تحب.")
         return
 
     username = user_names[user_id]
 
-    # ✅ الرد من Gemini
+    # الرد من Gemini
     try:
         response = model.generate_content(user_message)
         bot_reply = response.text
@@ -74,7 +84,7 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(bot_reply)
 
-    # ✅ حفظ الرسالة و الرد فـ PostgreSQL
+    # حفظ الرسالة و الرد فـ PostgreSQL
     try:
         cursor.execute("""
             INSERT INTO messages (user_id, username, message, bot_reply)
@@ -119,22 +129,61 @@ async def set_webhook():
 
 asyncio.run(set_webhook())
 asyncio.run(app.run_polling())
-# Route باش تشوف آخر الرسائل فالويب
+
+# =======================
+# Route عرض جميع الرسائل + زر تحميل CSV
+# =======================
 @web_app.route('/messages')
-def show_messages():
+def messages_page():
     try:
-        cursor.execute("SELECT username, message, bot_reply, timestamp FROM messages ORDER BY id DESC LIMIT 50")
+        cursor.execute("SELECT username, message, bot_reply, timestamp FROM messages ORDER BY id ASC")
         rows = cursor.fetchall()
         if not rows:
             return "⚠️ مازال ما كاين حتى رسالة."
 
-        # نخلق HTML بسيط باش نعرض الرسائل
-        content = "<h2>آخر الرسائل</h2><hr>"
-        for row in rows:
-            content += f"<b>{row[0]}</b> ({row[3]}):<br>🧠 User: {row[1]}<br>🤖 Bot: {row[2]}<br><br>"
-        return content
+        html_content = """
+        <h2>📄 جميع الرسائل</h2>
+        <a href="/export_csv"><button>⬇️ تحميل CSV</button></a>
+        <hr>
+        {% for row in rows %}
+            <b>{{row[0]}}</b> ({{row[3]}}):<br>
+            🧠 User: {{row[1]}}<br>
+            🤖 Bot: {{row[2]}}<br><br>
+        {% endfor %}
+        """
+        return render_template_string(html_content, rows=rows)
+
     except Exception as e:
         return f"⚠️ خطأ فـ قراءة الـ database: {e}"
+
+# =======================
+# Route لتصدير CSV
+# =======================
+@web_app.route('/export_csv')
+def export_csv():
+    try:
+        cursor.execute("SELECT username, message, bot_reply, timestamp FROM messages ORDER BY id ASC")
+        rows = cursor.fetchall()
+        if not rows:
+            return "⚠️ مازال ما كاين حتى رسالة."
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Username", "User Message", "Bot Reply", "Timestamp"])
+        for row in rows:
+            writer.writerow(row)
+
+        output.seek(0)
+        return send_file(
+            io.BytesIO(output.getvalue().encode("utf-8")),
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name='all_messages.csv'
+        )
+    except Exception as e:
+        return f"⚠️ خطأ فـ تصدير CSV: {e}"
+
+
 
 
 
