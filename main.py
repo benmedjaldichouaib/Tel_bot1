@@ -15,7 +15,7 @@ import csv
 # =======================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-DATABASE_URL = os.environ.get("DATABASE_URL")  # PostgreSQL Internal URL
+DATABASE_URL = os.environ.get("iWzIodRLt4GaQJWVGt030LQM45817Pgi@dpg-d491rr95pdvs73cm68rg-a/bot_db_dbjz")  # PostgreSQL Internal URL
 
 # =======================
 # Gemini setup
@@ -182,6 +182,7 @@ def export_csv():
         )
     except Exception as e:
         return f"⚠️ خطأ فـ تصدير CSV: {e}"
+
 
 
 
