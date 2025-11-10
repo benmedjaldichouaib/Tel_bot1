@@ -1,3 +1,4 @@
+
 from flask import Flask
 import google.generativeai as genai
 from telegram import Update
@@ -6,7 +7,7 @@ import nest_asyncio
 import asyncio
 import threading
 import os
-import sqlite3
+import psycopg2
 
 # مفاتيح من Environment Variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -44,18 +45,21 @@ def run_flask():
     web_app.run(host="0.0.0.0", port=port)
 
 # ===========================
-# SQLite setup
+# PostgreSQL setup
 # ===========================
-conn = sqlite3.connect("bot_data.db", check_same_thread=False)
+DATABASE_URL = os.environ.get("DATABASE_URL")  # Render يعطيها تلقائي
+
+conn = psycopg2.connect(DATABASE_URL)
 cursor = conn.cursor()
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER,
+    id SERIAL PRIMARY KEY,
+    user_id BIGINT,
     username TEXT,
     message TEXT,
     bot_reply TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
 """)
 conn.commit()
@@ -90,11 +94,11 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(bot_reply)
 
-    # ✅ حفظ الرسالة و الرد فـ SQLite
+    # ✅ حفظ الرسالة و الرد فـ PostgreSQL
     try:
         cursor.execute("""
             INSERT INTO messages (user_id, username, message, bot_reply)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s)
         """, (user_id, username, user_message, bot_reply))
         conn.commit()
         print(f"💾 Message saved for {username}")
@@ -112,7 +116,3 @@ async def run_bot():
     await app.run_polling()
 
 asyncio.run(run_bot())
-
-
-
-
