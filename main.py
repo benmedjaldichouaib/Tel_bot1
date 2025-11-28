@@ -15,7 +15,7 @@ import csv
 # =======================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-DATABASE_URL = os.environ.get("iWzodRLt4GaQJWVGt030LQM45817Pgi@dpg-d491rr95pdvs73cm68rg-a/bot_db_dbjz")  # PostgreSQL Internal URL
+DATABASE_URL = os.environ.get("DATABASE_URL")   # ✔️ Render DB URL
 
 # =======================
 # Gemini setup
@@ -59,7 +59,7 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_message = update.message.text.strip()
 
-    # إذا المستخدم جديد أو الاسم مازال ما تعرفش
+    # user name handling
     if user_id not in user_names:
         user_names[user_id] = None
 
@@ -75,16 +75,16 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     username = user_names[user_id]
 
-    # الرد من Gemini
+    # Gemini response
     try:
         response = model.generate_content(user_message)
         bot_reply = response.text
     except Exception as e:
-        bot_reply = f"⚠️ خطأ في الاتصال بالذكاء الاصطناعي: {e}"
+        bot_reply = f"⚠️ خطأ فالاتصال بـ Gemini: {e}"
 
     await update.message.reply_text(bot_reply)
 
-    # حفظ الرسالة و الرد فـ PostgreSQL
+    # Save to database
     try:
         cursor.execute("""
             INSERT INTO messages (user_id, username, message, bot_reply)
@@ -93,7 +93,7 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         print(f"💾 Message saved for {username}")
     except Exception as e:
-        print(f"⚠️ خطأ في حفظ البيانات: {e}")
+        print(f"⚠️ Error saving to DB: {e}")
 
 # =======================
 # Telegram Webhook route
@@ -131,7 +131,7 @@ asyncio.run(set_webhook())
 asyncio.run(app.run_polling())
 
 # =======================
-# Route عرض جميع الرسائل + زر تحميل CSV
+# Dashboard: show messages
 # =======================
 @web_app.route('/messages')
 def messages_page():
@@ -154,10 +154,10 @@ def messages_page():
         return render_template_string(html_content, rows=rows)
 
     except Exception as e:
-        return f"⚠️ خطأ فـ قراءة الـ database: {e}"
+        return f"⚠️ Error reading DB: {e}"
 
 # =======================
-# Route لتصدير CSV
+# Export CSV
 # =======================
 @web_app.route('/export_csv')
 def export_csv():
@@ -170,18 +170,21 @@ def export_csv():
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["Username", "User Message", "Bot Reply", "Timestamp"])
+
         for row in rows:
             writer.writerow(row)
 
         output.seek(0)
         return send_file(
             io.BytesIO(output.getvalue().encode("utf-8")),
-            mimetype='text/csv',
+            mimetype="text/csv",
             as_attachment=True,
-            download_name='all_messages.csv'
+            download_name="all_messages.csv"
         )
     except Exception as e:
-        return f"⚠️ خطأ فـ تصدير CSV: {e}"
+        return f"⚠️ Error exporting CSV: {e}"
+
+
 
 
 
