@@ -75,25 +75,39 @@ async def chat_ai(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     username = user_names[user_id]
 
-    # Gemini response
+    # ============= LOAD HISTORY FROM DB =============
+    cursor.execute("""
+        SELECT message, bot_reply FROM messages WHERE user_id=%s ORDER BY id ASC
+    """, (user_id,))
+    rows = cursor.fetchall()
+
+    chat_history = []
+    for msg, reply in rows:
+        chat_history.append({"role": "user", "parts": msg})
+        chat_history.append({"role": "model", "parts": reply})
+
+    # append latest user message
+    chat_history.append({"role": "user", "parts": user_message})
+
+    # ============= GEMINI RESPONSE WITH HISTORY =============
     try:
-        response = model.generate_content(user_message)
+        response = model.generate_content(chat_history)
         bot_reply = response.text
     except Exception as e:
         bot_reply = f"⚠️ خطأ فالاتصال بـ Gemini: {e}"
 
     await update.message.reply_text(bot_reply)
 
-    # Save to database
+    # save to database
     try:
         cursor.execute("""
             INSERT INTO messages (user_id, username, message, bot_reply)
             VALUES (%s, %s, %s, %s)
         """, (user_id, username, user_message, bot_reply))
         conn.commit()
-        print(f"💾 Message saved for {username}")
     except Exception as e:
         print(f"⚠️ Error saving to DB: {e}")
+
 
 # =======================
 # Telegram Webhook route
@@ -183,6 +197,7 @@ def export_csv():
         )
     except Exception as e:
         return f"⚠️ Error exporting CSV: {e}"
+
 
 
 
